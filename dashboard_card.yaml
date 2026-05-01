@@ -1,0 +1,99 @@
+type: custom:apexcharts-card
+header:
+  show: true
+  title: Аналітика охолодження Deye
+  show_states: true
+  colorize_states: true
+graph_span: 6h
+update_interval: 10s
+yaxis:
+  - id: temp
+    min: 25
+    max: 70
+    decimals: 1
+    apex_config:
+      tickAmount: 9
+      title:
+        text: Температура / Потужність %
+  - id: rpm
+    opposite: true
+    min: 500
+    max: 4000
+    decimals: 0
+    apex_config:
+      tickAmount: 7
+      title:
+        text: Оберти RPM
+apex_config:
+  annotations:
+    yaxis:
+      - "y": 45
+        yAxisIndex: 0
+        borderColor: "#ff9800"
+        strokeDashArray: 4
+        label:
+          text: Start 45°C
+          textAnchor: start
+          position: left
+          offsetX: 5
+          style:
+            color: "#ff9800"
+            fontSize: 10px
+            background: transparent
+      - "y": 60
+        yAxisIndex: 0
+        borderColor: "#f44336"
+        strokeDashArray: 4
+        label:
+          text: Max 60°C
+          textAnchor: start
+          position: left
+          offsetX: 5
+          style:
+            color: "#f44336"
+            fontSize: 10px
+            background: transparent
+      - "y": 65
+        yAxisIndex: 0
+        borderColor: "#b71c1c"
+        strokeDashArray: 2
+        label:
+          text: EMER 65°C
+          textAnchor: start
+          position: left
+          offsetX: 5
+          style:
+            color: "#b71c1c"
+            fontSize: 10px
+            background: transparent
+series:
+  - entity: sensor.deye_dc_temperature
+    name: Температура DC
+    yaxis_id: temp
+    type: area
+    color: "#ff9800"
+    stroke_width: 2
+    opacity: 0.2
+    group_by:
+      func: avg
+      duration: 1min
+  - entity: sensor.deye_cooling_deye_fan_real_speed
+    name: Оберти
+    yaxis_id: rpm
+    type: line
+    color: "#2196f3"
+    stroke_width: 2
+    float_precision: 0
+    group_by:
+      func: avg
+      duration: 2min
+  - entity: sensor.deye_cooling_fan_power
+    name: Потужність (%)
+    yaxis_id: temp
+    type: line
+    color: "#4caf50"
+    stroke_width: 2
+    curve: stepline
+    group_by:
+      func: last
+      duration: 2min
