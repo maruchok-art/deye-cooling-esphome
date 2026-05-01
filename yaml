@@ -1,0 +1,358 @@
+substitutions:
+  device_name: "deye-cooling"
+  target_gpio: "GPIO16"
+
+esphome:
+  name: ${device_name}
+  on_boot:
+    priority: -10
+    then:
+      - fan.turn_on:
+          id: deye_fan
+          speed: !lambda 'return id(speed_idle).state;'
+
+preferences:
+  flash_write_interval: 15min
+
+esp32:
+  board: esp32dev
+  framework: {type: arduino}
+
+wifi:
+  ssid: "YOUR_WIFI_SSID"
+  password: "YOUR_WIFI_PASSWORD"
+  use_address: "YOUR_ESP32_IP_ADDRESS"
+  reboot_timeout: 0s
+  ap:
+    ssid: "${device_name}_fallback"
+
+captive_portal:
+web_server:
+  port: 80
+  version: 3
+logger:
+  level: INFO
+api:
+  reboot_timeout: 0s
+ota:
+  - platform: esphome
+
+globals:
+  - id: last_valid_temp_time
+    type: uint32_t
+    initial_value: '0'
+  - id: failsafe_timeout_ms
+    type: uint32_t
+    initial_value: '600000'
+
+# ==========================================
+# ТЕМПЕРАТУРНІ ПОРОГИ
+# ==========================================
+number:
+  - platform: template
+    name: "Start Temp (°C)"
+    id: temp_start
+    min_value: 30
+    max_value: 60
+    step: 0.5
+    initial_value: 45.0
+    optimistic: true
+    restore_value: true
+    icon: "mdi:thermometer-low"
+
+  - platform: template
+    name: "Max Temp (°C)"
+    id: temp_max
+    min_value: 40
+    max_value: 80
+    step: 0.5
+    initial_value: 60.0
+    optimistic: true
+    restore_value: true
+    icon: "mdi:thermometer-high"
+
+  - platform: template
+    name: "Emer Temp (°C)"
+    id: temp_emer
+    min_value: 50
+    max_value: 90
+    step: 0.5
+    initial_value: 65.0
+    optimistic: true
+    restore_value: true
+    icon: "mdi:thermometer-alert"
+
+  - platform: template
+    name: "Hysteresis (°C)"
+    id: temp_hysteresis
+    min_value: 0.0
+    max_value: 5.0
+    step: 0.5
+    initial_value: 2.0
+    optimistic: true
+    restore_value: true
+    icon: "mdi:arrow-up-down"
+
+# ==========================================
+# ШВИДКОСТІ ВЕНТИЛЯТОРІВ
+# ==========================================
+  - platform: template
+    name: "Idle Speed (%)"
+    id: speed_idle
+    min_value: 20
+    max_value: 50
+    step: 5
+    initial_value: 25
+    optimistic: true
+    restore_value: true
+    icon: "mdi:fan-speed-1"
+
+  - platform: template
+    name: "Max Speed (%)"
+    id: speed_max
+    min_value: 50
+    max_value: 100
+    step: 5
+    initial_value: 80
+    optimistic: true
+    restore_value: true
+    icon: "mdi:fan-speed-3"
+
+  - platform: template
+    name: "Failsafe Speed (%)"
+    id: speed_failsafe
+    min_value: 20
+    max_value: 100
+    step: 5
+    initial_value: 40
+    optimistic: true
+    restore_value: true
+    icon: "mdi:fan-alert"
+
+# ==========================================
+# КНОПКИ
+# ==========================================
+button:
+  - platform: template
+    name: "Скинути налаштування (Reset)"
+    id: reset_defaults
+    icon: "mdi:restore"
+    on_press:
+      - number.set:
+          id: temp_start
+          value: 45.0
+      - number.set:
+          id: temp_max
+          value: 60.0
+      - number.set:
+          id: temp_emer
+          value: 65.0
+      - number.set:
+          id: temp_hysteresis
+          value: 2.0
+      - number.set:
+          id: speed_idle
+          value: 25.0
+      - number.set:
+          id: speed_max
+          value: 80.0
+      - number.set:
+          id: speed_failsafe
+          value: 40.0
+      - logger.log: "Налаштування скинуто до базових!"
+
+  - platform: safe_mode
+    name: "Restart (Safe Mode)"
+    icon: "mdi:restart-alert"
+
+# ==========================================
+# ДІАГНОСТИКА
+# ==========================================
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      icon: "mdi:ip-network"
+
+  - platform: template
+    name: "Uptime"
+    id: uptime_human
+    icon: "mdi:clock-start"
+
+switch:
+  - platform: template
+    name: "Auto Mode"
+    id: auto_mode
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    icon: "mdi:robot-outline"
+
+# ==========================================
+# ЗАЛІЗО
+# ==========================================
+output:
+  - platform: ledc
+    pin: ${target_gpio}
+    frequency: 25000 Hz
+    id: fan_pwm
+
+fan:
+  - platform: speed
+    output: fan_pwm
+    name: "Deye Fan (Silent PWM)"
+    id: deye_fan
+    speed_count: 100
+
+# ==========================================
+# СЕНСОРИ
+# ==========================================
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    icon: "mdi:wifi"
+
+  - platform: uptime
+    name: "Uptime Raw"
+    id: uptime_sensor
+    update_interval: 60s
+    internal: true
+    on_raw_value:
+      then:
+        - text_sensor.template.publish:
+            id: uptime_human
+            state: !lambda |-
+              int seconds = round(id(uptime_sensor).raw_state);
+              int days    = seconds / 86400; seconds %= 86400;
+              int hours   = seconds / 3600;  seconds %= 3600;
+              int minutes = seconds / 60;    seconds %= 60;
+              return (
+                (days    ? to_string(days)    + "d " : "") +
+                (hours   ? to_string(hours)   + "h " : "") +
+                (minutes ? to_string(minutes) + "m " : "") +
+                (to_string(seconds) + "s")
+              ).c_str();
+
+  - platform: pulse_counter
+    pin:
+      number: GPIO17
+      mode: INPUT_PULLUP
+    unit_of_measurement: 'RPM'
+    name: "Deye Fan Real Speed"
+    icon: "mdi:speedometer"
+    id: fan_rpm
+    update_interval: 2s
+    filters:
+      - multiply: 0.5
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 1
+
+  - platform: template
+    name: "Fan Power (%)"
+    unit_of_measurement: "%"
+    icon: "mdi:fan"
+    lambda: 'return (float)id(deye_fan).speed;'
+    update_interval: 5s
+
+  - platform: homeassistant
+    entity_id: sensor.deye_dc_temperature
+    id: deye_dc_temp
+    internal: true
+    filters:
+      - filter_out: nan
+      - exponential_moving_average:
+          alpha: 0.1
+          send_every: 3
+    on_value:
+      then:
+        - lambda: 'id(last_valid_temp_time) = millis();'
+        # 1. АВАРІЙНИЙ ПОРІГ — завжди 100% миттєво
+        - if:
+            condition:
+              lambda: 'return x >= id(temp_emer).state;'
+            then:
+              - fan.turn_on:
+                  id: deye_fan
+                  speed: 100
+            else:
+              # 2. АВТОМАТИКА
+              - if:
+                  condition:
+                    lambda: 'return id(auto_mode).state;'
+                  then:
+                    - fan.turn_on:
+                        id: deye_fan
+                        speed: !lambda |-
+                          float t = x;
+                          float t_start = id(temp_start).state;
+                          float t_max = id(temp_max).state;
+                          float s_min = id(speed_idle).state;
+                          float s_max = id(speed_max).state;
+                          float hysteresis = id(temp_hysteresis).state;
+
+                          static float last_calc = 0;
+                          float effective_start = (last_calc > s_min)
+                                                  ? (t_start - hysteresis)
+                                                  : t_start;
+
+                          float new_speed;
+                          if (t < effective_start) {
+                            new_speed = s_min;
+                          } else {
+                            if (t_max <= t_start) return (int)s_min;
+                            float calc = s_min + (s_max - s_min) *
+                                         ((t - effective_start) / (t_max - effective_start));
+                            new_speed = std::min(s_max, std::max(s_min, calc));
+                          }
+                          last_calc = new_speed;
+                          return (int)new_speed;
+
+# ==========================================
+# BINARY SENSOR
+# ==========================================
+binary_sensor:
+  - platform: template
+    name: "Failsafe Active"
+    id: failsafe_active
+    device_class: problem
+    lambda: |-
+      uint32_t now = millis();
+      uint32_t last_time = id(last_valid_temp_time);
+      uint32_t timeout = id(failsafe_timeout_ms);
+      bool never = (last_time == 0 && now > timeout);
+      bool stale = (last_time > 0 && (now - last_time) > timeout);
+      return never || stale;
+
+# ==========================================
+# ЗАХИСНІ ІНТЕРВАЛИ
+# ==========================================
+interval:
+  # 1. FAILSAFE — втрата даних понад 10 хвилин
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              uint32_t now = millis();
+              uint32_t last_time = id(last_valid_temp_time);
+              uint32_t timeout = id(failsafe_timeout_ms);
+              bool never_received = (last_time == 0 && now > timeout);
+              bool data_stale = (last_time > 0 && (now - last_time) > timeout);
+              return never_received || data_stale;
+          then:
+            - fan.turn_on:
+                id: deye_fan
+                speed: !lambda 'return id(speed_failsafe).state;'
+            - lambda: 'ESP_LOGW("failsafe", "Немає даних від HA понад 10 хв! Аварійний обдув.");'
+
+  # 2. ЗАХИСТ ВІД ЗУПИНКИ — не дає впасти нижче 20%
+  - interval: 2s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(deye_fan).state && id(deye_fan).speed > 0 && id(deye_fan).speed < 20;'
+          then:
+            - fan.turn_on:
+                id: deye_fan
+                speed: 20
